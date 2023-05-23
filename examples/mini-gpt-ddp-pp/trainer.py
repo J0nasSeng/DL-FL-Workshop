@@ -10,6 +10,8 @@ import os
 
 import torch
 from torch.utils.data import Dataset, DataLoader
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
 
 import boto3
 from urllib.parse import urlparse
@@ -43,13 +45,16 @@ class Trainer:
 
     def __init__(self, trainer_config: TrainerConfig, model, optimizer, train_dataset, test_dataset=None):
         self.config = trainer_config
+        # set torchrun variables
+        self.local_rank = int(os.environ["LOCAL_RANK"])
+        self.global_rank = int(os.environ["RANK"])  
         # data stuff
         self.train_dataset = train_dataset
         self.train_loader = self._prepare_dataloader(train_dataset)
         self.test_loader = self._prepare_dataloader(test_dataset) if test_dataset else None
         # initialize train states
         self.epochs_run = 0
-        self.model = model
+        self.model = model.to(self.local_rank)
         self.optimizer = optimizer        
         self.save_every = self.config.save_every
         if self.config.use_amp:
@@ -58,6 +63,8 @@ class Trainer:
         if self.config.snapshot_path is None:
             self.config.snapshot_path = "snapshot.pt"
         self._load_snapshot()
+        # wrap with DDP. this step will synch model across all the processes.
+        self.model = DDP(self.model, device_ids=[self.local_rank])
         
     def _prepare_dataloader(self, dataset: Dataset):
         return DataLoader(
@@ -65,7 +72,8 @@ class Trainer:
             batch_size=self.config.batch_size,
             pin_memory=True,
             shuffle=False,
-            num_workers=self.config.data_loader_workers
+            num_workers=self.config.data_loader_workers,
+            sampler=DistributedSampler(dataset)
         )
 
     def _load_snapshot(self):
@@ -106,11 +114,11 @@ class Trainer:
         dataloader.sampler.set_epoch(epoch)
         for iter, (source, targets) in enumerate(dataloader):
             step_type = "Train" if train else "Eval"
-            source = source.to('cuda:0')
-            targets = targets.to('cuda:0')
+            source = source.to(self.local_rank)
+            targets = targets.to(self.local_rank)
             batch_loss = self._run_batch(source, targets, train)
             if iter % 100 == 0:
-                print(f"[Epoch {epoch} | Iter {iter} | {step_type} Loss {batch_loss:.5f}")
+                print(f"[GPU{self.global_rank}] Epoch {epoch} | Iter {iter} | {step_type} Loss {batch_loss:.5f}")
 
     def _save_snapshot(self, epoch):
         # capture snapshot
@@ -134,7 +142,7 @@ class Trainer:
         for epoch in range(self.epochs_run, self.config.max_epochs):
             epoch += 1
             self._run_epoch(epoch, self.train_loader, train=True)
-            if epoch % self.save_every == 0:
+            if self.local_rank == 0 and epoch % self.save_every == 0:
                 self._save_snapshot(epoch)
             # eval run
             if self.test_loader:

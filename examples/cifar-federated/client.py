@@ -121,8 +121,8 @@ def main() -> None:
         Useful for testing purposes. Default: False",
     )
     parser.add_argument(
-        "--use_cuda",
-        type=bool,
+        "--gpu",
+        type=int,
         default=False,
         required=False,
         help="Set to true to use GPU. Default: False",
@@ -131,7 +131,7 @@ def main() -> None:
     args = parser.parse_args()
 
     device = torch.device(
-        "cuda:0" if torch.cuda.is_available() and args.use_cuda else "cpu"
+        f"cuda:{args.gpu}" if torch.cuda.is_available() and args.gpu else "cpu"
     )
 
     if args.dry:

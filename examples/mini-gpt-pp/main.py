@@ -8,6 +8,11 @@ from torch.distributed import init_process_group, destroy_process_group
 import os
 
 def ddp_setup():
+    os.environ['RANK'] = '0'
+    os.environ['WORLD_SIZE'] = '2'
+    os.environ['MASTER_ADDR'] = '127.0.0.1'
+    os.environ['MASTER_PORT'] = '29500'
+    os.environ['LOCAL_RANK'] = '0'
     init_process_group(backend="nccl")
     torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
 

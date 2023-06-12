@@ -8,6 +8,12 @@ from torchvision.datasets import CIFAR10
 import flwr as fl
 
 from dp_cifar_main import Net, DPCifarClient, PARAMS
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--gpu', type=int)
+
+args = parser.parse_args()
 
 # Setup for running a single client manually (alternatively use simulation code in 'dp_cifar_simulation').
 
@@ -26,8 +32,9 @@ def load_data():
     return trainloader, testloader, sample_rate
 
 
-model = Net()
+device = torch.device(f'cuda:{args.gpu}') if torch.cuda.is_available() else "cpu"
+model = Net().to(device)
 trainloader, testloader, sample_rate = load_data()
 fl.client.start_numpy_client(
-    "127.0.0.1:8080", client=DPCifarClient(model, trainloader, testloader, sample_rate)
+    server_address="127.0.0.1:8080", client=DPCifarClient(model, trainloader, testloader)
 )

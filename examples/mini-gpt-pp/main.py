@@ -5,16 +5,25 @@ from torch.utils.data import random_split
 from omegaconf import DictConfig
 import hydra
 from torch.distributed import init_process_group, destroy_process_group
+from torch.distributed.rpc import init_rpc, BackendType, TensorPipeRpcBackendOptions
 import os
+import argparse
 
-def ddp_setup():
-    os.environ['RANK'] = '0'
+parser = argparse.ArgumentParser()
+parser.add_argument("--id", type=int, required=False)
+
+args = parser.parse_args()
+
+def ddp_setup(args):
     os.environ['WORLD_SIZE'] = '2'
     os.environ['MASTER_ADDR'] = '127.0.0.1'
     os.environ['MASTER_PORT'] = '29500'
-    os.environ['LOCAL_RANK'] = '0'
-    init_process_group(backend="nccl")
-    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+    os.environ['RANK'] = str(args.id)
+    os.environ['TP_SOCKET_IFNAME']='lo'
+    init_process_group(backend="gloo")
+    init_rpc(f"worker_{args.id}", rank=args.id, world_size=2, rpc_backend_options=TensorPipeRpcBackendOptions(
+        init_method=f"tcp://127.0.0.1:29500",
+        _transports=["uv"]))
 
 def get_train_objs(gpt_cfg: GPTConfig, opt_cfg: OptimizerConfig, data_cfg: DataConfig):
     dataset = CharDataset(data_cfg)
@@ -28,9 +37,8 @@ def get_train_objs(gpt_cfg: GPTConfig, opt_cfg: OptimizerConfig, data_cfg: DataC
     
     return model, optimizer, train_set, test_set
 
-@hydra.main(version_base=None, config_path=".", config_name="gpt2_train_cfg")
+@hydra.main(version_base=None, config_path=".", config_name="gpt2_train_config")
 def main(cfg: DictConfig):
-    ddp_setup()
 
     gpt_cfg = GPTConfig(**cfg['gpt_config'])
     opt_cfg = OptimizerConfig(**cfg['optimizer_config'])
@@ -45,4 +53,5 @@ def main(cfg: DictConfig):
 
 
 if __name__ == "__main__":
+    ddp_setup(args)
     main()

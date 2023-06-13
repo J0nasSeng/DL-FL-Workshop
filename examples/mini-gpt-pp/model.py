@@ -9,7 +9,7 @@ import math
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from torch.distributed.pipeline import Pipe
+from torch.distributed.pipeline.sync import Pipe
 import numpy as np
 
 

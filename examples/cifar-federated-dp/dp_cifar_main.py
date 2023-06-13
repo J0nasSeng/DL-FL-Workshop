@@ -22,7 +22,6 @@ PRIVACY_PARAMS = {
     "noise_multiplier": 0.4,
     "max_grad_norm": 1.2,
 }
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 # Define model used for training.
@@ -46,13 +45,13 @@ class Net(nn.Module):
         return x
 
 
-def train(net, optimizer, trainloader, epochs):
+def train(net, optimizer, trainloader, epochs, device):
     criterion = torch.nn.CrossEntropyLoss()
     losses = []
     for _ in range(epochs):
         epoch_loss = 0
         for images, labels in trainloader:
-            images, labels = images.to(DEVICE), labels.to(DEVICE)
+            images, labels = images.to(device), labels.to(device)
             optimizer.zero_grad()
             loss = criterion(net(images), labels)
             loss.backward()
@@ -61,12 +60,12 @@ def train(net, optimizer, trainloader, epochs):
     return losses
 
 
-def test(net, testloader):
+def test(net, testloader, device):
     criterion = torch.nn.CrossEntropyLoss()
     correct, loss = 0, 0.0
     with torch.no_grad():
         for data in testloader:
-            images, labels = data[0].to(DEVICE), data[1].to(DEVICE)
+            images, labels = data[0].to(device), data[1].to(device)
             outputs = net(images)
             loss += criterion(outputs, labels).item()
             _, predicted = torch.max(outputs.data, 1)
@@ -77,9 +76,10 @@ def test(net, testloader):
 
 # Define Flower client.
 class DPCifarClient(fl.client.NumPyClient):
-    def __init__(self, model, trainloader, testloader) -> None:
+    def __init__(self, model, trainloader, testloader, device) -> None:
         super().__init__()
         self.model = model
+        self.device = device
         self.trainloader = trainloader
         self.testloader = testloader
         self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.001, momentum=0.9)
@@ -103,14 +103,11 @@ class DPCifarClient(fl.client.NumPyClient):
     def fit(self, parameters, config):
         self.set_parameters(parameters)
         losses = train(
-            self.model, self.optimzer, self.trainloader, PARAMS["local_epochs"]
+            self.model, self.optimzer, self.trainloader, PARAMS["local_epochs"], self.device
         )
-        return (
-            self.get_parameters(config={}),
-            len(self.trainloader),
-        )
+        return self.get_parameters(config={}), len(self.trainloader), {}
 
     def evaluate(self, parameters, config):
         self.set_parameters(parameters)
-        loss, accuracy = test(self.model, self.testloader)
+        loss, accuracy = test(self.model, self.testloader, self.device)
         return float(loss), len(self.testloader), {"accuracy": float(accuracy)}
